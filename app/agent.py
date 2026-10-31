@@ -5,7 +5,7 @@ from . import config, guard
 from .db import messages, now, retrievals, to_json
 from .embeddings import embed_one
 from .llm import llm
-from .memory import BLOCKED_PERSONAL, apply_operations, recall, team_member_names, touch
+from .memory import BLOCKED_PERSONAL, ENGINE, apply_operations, recall, team_member_names, touch
 
 HISTORY_TURNS = 10
 # Models sometimes cite as (M1), 【M1】, [M1, M2] or (M1–M4); normalise every form to [M1][M2] before counting.
@@ -18,6 +18,26 @@ def _expand_refs(group: str) -> str:
         lo, hi = int(a), int(b or a)
         refs += range(lo, hi + 1) if hi - lo < 10 else [lo, hi]
     return "".join(f"[M{n}]" for n in dict.fromkeys(refs))
+
+
+# Greetings and acknowledgements (English + common Hinglish). "yes"/"no"/"sure" are deliberately absent:
+# they can confirm a pending conflict override.
+SMALL_TALK = set(
+    "hi hii hello hey yo ok okay k kk thanks thank you thx ty tysm cool great nice awesome perfect got it bye "
+    "good morning evening night gm gn lol haha np welcome accha acha theek thik hai ji bhai shukriya dhanyavad".split()
+)
+
+
+def is_small_talk(text: str) -> bool:
+    words = re.findall(r"[a-z]+", text.lower())
+    if not words:
+        return not re.search(r"\w", text)  # emoji / punctuation only
+    return len(words) <= 5 and all(w in SMALL_TALK for w in words)
+
+
+async def _conflict_pending(session_id: str) -> bool:
+    last = await messages.find_one({"session_id": session_id, "role": "assistant"}, sort=[("created_at", -1)])
+    return bool(last) and any(a.get("kind") == "conflict" for a in last.get("actions", []))
 
 
 def speaker_info(user_id: str) -> dict:
@@ -56,15 +76,24 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
                 "redacted": secret_kinds, "created_at": now()}
     user_msg["_id"] = (await messages.insert_one(user_msg)).inserted_id
 
+    # Small talk carries no knowledge: skip embedding, recall and the memory manager (saves latency and quota).
+    small_talk = is_small_talk(clean) and not await _conflict_pending(session_id)
+    no_recall = {"items": [], "engine": dict(ENGINE), "filter": None}
+
     # 1. Recall neighbours of the message so the memory manager can dedupe / supersede / detect conflicts.
-    qvec = await embed_one(clean, "query")
-    neighbours = await recall(user_id, qvec, k=8)
+    if small_talk:
+        qvec, neighbours = None, no_recall
+    else:
+        qvec = await embed_one(clean, "query")
+        neighbours = await recall(user_id, qvec, k=8)
 
     # 2. Memory manager proposes operations; the engine validates and applies them.
     actions: list[dict] = []
     if secret_kinds:
         actions.append({"kind": "redacted", "kinds": secret_kinds})
-    if guard.looks_like_injection(clean):
+    if small_talk:
+        ops = []
+    elif guard.looks_like_injection(clean):
         # A message that tries to steer the system never gets to write to team memory.
         ops = []
         actions.append({"kind": "blocked", "reason": "The message tries to override the assistant's instructions, so team memory was left unchanged."})
@@ -78,7 +107,7 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
         actions.append({"kind": "blocked", "reason": BLOCKED_PERSONAL})
 
     # 3. Recall again (memory may have just changed) and answer.
-    recalled = await recall(user_id, qvec) if use_memory else {"items": [], "engine": neighbours["engine"], "filter": None}
+    recalled = await recall(user_id, qvec) if use_memory and qvec is not None else no_recall
     reply = await llm.respond(speaker, history, clean, recalled["items"], actions)
 
     reply = CITE_GROUP.sub(lambda m: _expand_refs(m.group(1)), reply)
