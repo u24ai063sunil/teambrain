@@ -124,6 +124,7 @@ LLM_FALLBACK_API_KEY=...     # aistudio.google.com/apikey
 | `python scripts/seed.py` | Reset the demo workspace (also the **↺ Reset demo** button) |
 | `python scripts/doctor.py` | Checks connection, replica set, change streams, TTL, vector index status and dims, embeddings, recall and both Claude models |
 | `python scripts/eval.py` | Retrieval eval: hit@1, recall@k, MRR, and privacy/superseded violations. Put the numbers on a slide |
+| `python scripts/robustness.py` | 15 messy inputs through the running server: typos, Hinglish, Hindi, relative dates, shouting, prompt injection, personal claims, secrets, blank input. **Resets the demo workspace** |
 | `scripts/mcp_server.py` | MCP server for Claude Code and other agents (below) |
 
 ## Use it from Claude Code (MCP)
