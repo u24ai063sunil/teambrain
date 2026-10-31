@@ -5,13 +5,14 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from . import config, guard
 from .agent import chat_turn
@@ -134,10 +135,15 @@ async def get_config():
     }
 
 
+def Text(max_length: int):  # noqa: N802  (type alias factory)
+    """A string that is stripped first, so whitespace-only input is rejected as empty."""
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=max_length)]
+
+
 class ChatIn(BaseModel):
     user_id: str
     session_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
-    message: str = Field(min_length=1, max_length=8000)
+    message: Text(8000)
     use_memory: bool = True
 
 
@@ -173,7 +179,7 @@ async def get_memory(memory_id: str):
 
 class MemoryIn(BaseModel):
     user_id: str
-    content: str = Field(min_length=1, max_length=2000)
+    content: Text(2000)
     type: str = "fact"
     scope: str = "workspace"
     importance: float = 0.6
@@ -207,7 +213,7 @@ async def delete_memory(memory_id: str, user_id: str, hard: bool = False):
 class FeedbackIn(BaseModel):
     user_id: str
     message_id: str
-    text: str = Field(min_length=1, max_length=1000)
+    text: Text(1000)
 
 
 @app.post("/api/feedback")
