@@ -112,6 +112,9 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
         actions.append({"kind": "blocked", "reason": "The message tries to override the assistant's instructions, so team memory was left unchanged."})
     else:
         ops = await llm.manage_memory(speaker, clean, _history_text(history, speaker), neighbours["items"])
+        if clean.rstrip().endswith("?"):
+            # Asking about something is not restating it.
+            ops = [op for op in ops if op["action"] != "reinforce"]
     source = {"kind": "chat", "session_id": session_id, "message_id": user_msg["_id"], "quote": clean[:400]}
     actions += await apply_operations(user_id, ops, neighbours["items"], source)
     # The model may simply skip a personal claim; make the refusal explicit so the answer can't present it as fact.
