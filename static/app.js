@@ -151,7 +151,7 @@ function linkCitations(html, refMap) {
 function renderPills() {
   const c = state.config;
   const engine = c.engine?.name || "unknown";
-  const engineLabel = { "atlas-vector-search": "Atlas $vectorSearch", "fallback-exact-scan": "exact scan", unknown: "waiting" }[engine] || engine;
+  const engineLabel = { "atlas-vector-search": "Atlas $vectorSearch", "fallback-exact-scan": "exact scan", "keyword-fallback": "keyword fallback", unknown: "waiting" }[engine] || engine;
   const model = (id) => String(id || "").replace(/^.*\//, "");
   const llm = c.llm.provider === "mock" ? "offline mock"
     : c.llm.memory_model && c.llm.memory_model !== c.llm.chat_model ? `${model(c.llm.chat_model)} + ${model(c.llm.memory_model)}` : model(c.llm.chat_model);
@@ -464,6 +464,7 @@ function actionChip(a) {
     case "forget": return { cls: "forget", text: `🗑 forgot: ${short(a.content)}`, id: a.memory_id };
     case "redacted": return { cls: "redacted", text: `🔒 secret redacted (${a.kinds.join(", ")}), never stored` };
     case "reinforce": return { cls: "reinforce", text: `✓ already known: ${short(a.content, 40)}`, id: a.memory_id };
+    case "degraded": return { cls: "redacted", text: "⚠️ embeddings offline: keyword recall, nothing stored" };
     case "blocked": return { cls: "blocked", text: `⛔ not stored: ${a.content ? short(a.content, 40) : "message tried to override instructions"}` };
     default: return { cls: "", text: a.kind };
   }

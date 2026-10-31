@@ -159,6 +159,8 @@ def render_actions(actions: list[dict]) -> str:
             out.append(f"- Already known (reinforced): \"{a['content']}\"")
         elif a["kind"] == "blocked":
             out.append(f"- BLOCKED, nothing stored: {a['reason']}")
+        elif a["kind"] == "degraded":
+            out.append(f"- MEMORY READ-ONLY: {a['reason']} If the user shared new information, say it could not be saved right now.")
     return "\n".join(out)
 
 

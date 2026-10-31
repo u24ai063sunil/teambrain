@@ -7,7 +7,7 @@ from pymongo.errors import OperationFailure
 
 from . import config, guard
 from .db import events, memories, now, retrievals, to_json
-from .embeddings import cosine, embed_one
+from .embeddings import cosine, embed_one, tokenize
 
 log = logging.getLogger("teambrain.memory")
 
@@ -100,6 +100,21 @@ async def recall(user_id: str, qvec: list[float], k: int = config.RECALL_K) -> d
     for i, it in enumerate(items, 1):
         it["ref"] = f"M{i}"
     return {"items": items, "engine": dict(ENGINE), "filter": visibility_filter(user_id)}
+
+
+async def keyword_recall(user_id: str, text: str, k: int = config.RECALL_K) -> dict:
+    """Degraded recall when embeddings are unavailable: share of query words found in each memory."""
+    query = {t for t in tokenize(text) if "_" not in t}
+    docs = await memories.find({"$and": [visibility_filter(user_id), _not_expired()]}, {"embedding": 0}).to_list()
+    scored = []
+    for d in docs:
+        overlap = len(query & set(tokenize(d["content"]))) / max(1, len(query))
+        scored.append(_score(d, 0.5 + 0.5 * overlap))  # same 0.5..1 scale as vectorSearchScore
+    scored = sorted((s for s in scored if s["sim"] >= config.MIN_SIM), key=lambda s: s["final"], reverse=True)[:k]
+    for i, it in enumerate(scored, 1):
+        it["ref"] = f"M{i}"
+    ENGINE.update(name="keyword-fallback", detail="embeddings unavailable; keyword match in app")
+    return {"items": scored, "engine": dict(ENGINE), "filter": visibility_filter(user_id)}
 
 
 async def touch(memory_ids: list[ObjectId]) -> None:

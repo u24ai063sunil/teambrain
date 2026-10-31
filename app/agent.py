@@ -1,11 +1,14 @@
 """One chat turn: redact -> recall -> decide memory ops -> apply -> recall again -> respond -> log."""
+import logging
 import re
 
 from . import config, guard
 from .db import messages, now, retrievals, to_json
-from .embeddings import embed_one
+from .embeddings import EmbeddingError, embed_one
 from .llm import llm
-from .memory import BLOCKED_PERSONAL, ENGINE, apply_operations, recall, team_member_names, touch
+from .memory import BLOCKED_PERSONAL, ENGINE, apply_operations, keyword_recall, recall, team_member_names, touch
+
+log = logging.getLogger("teambrain.agent")
 
 HISTORY_TURNS = 10
 # Models sometimes cite as (M1), 【M1】, [M1, M2] or (M1–M4); normalise every form to [M1][M2] before counting.
@@ -81,17 +84,27 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
     no_recall = {"items": [], "engine": dict(ENGINE), "filter": None}
 
     # 1. Recall neighbours of the message so the memory manager can dedupe / supersede / detect conflicts.
+    degraded = False
     if small_talk:
         qvec, neighbours = None, no_recall
     else:
-        qvec = await embed_one(clean, "query")
-        neighbours = await recall(user_id, qvec, k=8)
+        try:
+            qvec = await embed_one(clean, "query")
+            neighbours = await recall(user_id, qvec, k=8)
+        except EmbeddingError as e:
+            # Keep answering from a keyword match; memory is read-only until embeddings come back.
+            log.error("%s; falling back to keyword recall", e)
+            degraded, qvec = True, None
+            neighbours = await keyword_recall(user_id, clean, k=8)
 
     # 2. Memory manager proposes operations; the engine validates and applies them.
     actions: list[dict] = []
     if secret_kinds:
         actions.append({"kind": "redacted", "kinds": secret_kinds})
-    if small_talk:
+    if degraded:
+        ops = []
+        actions.append({"kind": "degraded", "reason": "The embedding service is unavailable, so memories were matched by keywords and nothing new was stored."})
+    elif small_talk:
         ops = []
     elif guard.looks_like_injection(clean):
         # A message that tries to steer the system never gets to write to team memory.
@@ -107,7 +120,12 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
         actions.append({"kind": "blocked", "reason": BLOCKED_PERSONAL})
 
     # 3. Recall again (memory may have just changed) and answer.
-    recalled = await recall(user_id, qvec) if use_memory and qvec is not None else no_recall
+    if not use_memory:
+        recalled = no_recall
+    elif degraded:
+        recalled = await keyword_recall(user_id, clean)
+    else:
+        recalled = await recall(user_id, qvec) if qvec is not None else no_recall
     reply = await llm.respond(speaker, history, clean, recalled["items"], actions)
 
     reply = CITE_GROUP.sub(lambda m: _expand_refs(m.group(1)), reply)
