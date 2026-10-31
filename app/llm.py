@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -34,12 +35,13 @@ OPS_SCHEMA = {
                     "scope": {"type": "string", "enum": ["workspace", "private"]},
                     "importance": {"type": "number"},
                     "ttl_seconds": {"type": "integer"},
+                    "expires_at": {"type": "string"},
                     "user_confirmed_override": {"type": "boolean"},
                     "reason": {"type": "string"},
                 },
                 "required": [
                     "action", "target_ids", "type", "content", "scope",
-                    "importance", "ttl_seconds", "user_confirmed_override", "reason",
+                    "importance", "ttl_seconds", "expires_at", "user_confirmed_override", "reason",
                 ],
                 "additionalProperties": False,
             },
@@ -73,9 +75,12 @@ Rules:
 - Only store what the speaker ASSERTS. Questions ("what rate limit should I use?", "can I add a package?"), requests for code or help, and greetings produce ZERO operations. Never store the answer to a question, never store your own inferences or conclusions, and never store facts derived from existing memories.
 - Anything that only matters for the current turn is not a memory.
 - Write content as one standalone sentence in third person, naming the person when it is about them or was decided by them, and keep exact values (numbers, names, dates). Example: "The payments API is rate-limited to 100 requests per second (stated by Alice)."
+- Messages may be in any language, in Hinglish, or full of typos and shorthand ("r", "u", "pls", "limt"). Understand the intent and always write content in clear, correctly spelled English.
+- Resolve relative dates ("tomorrow", "on Friday", "next week") to absolute dates using the current date, e.g. "There is a freeze on new dependencies starting Wednesday 4 November 2026 (stated by Alice)."
 - One operation per distinct piece of information; split compound messages.
 - scope = "private" for personal preferences and personal details about the speaker; "workspace" for project and team knowledge.
-- ttl_seconds: if the information is explicitly temporary ("for the next 2 minutes", "for today", "until tomorrow"), the number of seconds until it stops being true. Otherwise 0.
+- ttl_seconds: if the information is true only for a stated duration from now ("for the next 2 minutes", "for an hour"), that duration in seconds. Otherwise 0.
+- expires_at: if the information stops being true at a named date or time ("down on Friday", "for today", "until the 10th"), the ISO 8601 local date or date-time when it stops being true, e.g. "2026-11-06" (meaning the end of that day) or "2026-11-06T18:00". Otherwise "". Something that only STARTS later (a freeze starting Wednesday) does not expire.
 - importance between 0 and 1: decisions and constraints that affect teammates 0.8-1.0, useful facts 0.5-0.8, minor preferences 0.3-0.6.
 - If the speaker corrects their own earlier statement, use supersede.
 - If the speaker explicitly confirms an override of a previously flagged conflict ("yes, override it", "confirmed, we switched"), use supersede with user_confirmed_override = true. Otherwise user_confirmed_override = false.
@@ -85,7 +90,7 @@ Rules:
 - target_ids may only contain ids from the existing memories list (M1, M2, ...). Use [] for add.
 - reason: a short explanation of your decision (shown to the user in the memory inspector)."""
 
-RESPONDER_SYSTEM = """You are {name}'s AI coding assistant on {workspace}. {name} is the team's {role}.
+RESPONDER_SYSTEM = """You are {name}'s AI coding assistant on {workspace}. {name} is the team's {role}. Today is {today}.
 You share a long-term team memory with the other teammates' agents. Memories relevant to this message are listed below, with ids.
 
 How to use memory:
@@ -105,7 +110,7 @@ If an action is a CONFLICT, do not treat the new claim as true: tell the user wh
 Relevant memories:
 {memories}
 
-Answer in Markdown. Be concise and practical."""
+Reply in the language the user wrote in. Answer in Markdown. Be concise and practical."""
 
 
 def _render_age(seconds: float) -> str:
@@ -157,8 +162,33 @@ def render_actions(actions: list[dict]) -> str:
     return "\n".join(out)
 
 
+def _today() -> str:
+    return datetime.now().astimezone().strftime("%A %d %B %Y, %H:%M (UTC%z)")
+
+
+def _expiry_seconds(op: dict) -> int:
+    """Seconds until the memory stops being true: an explicit duration wins, else the expires_at date."""
+    try:
+        ttl = max(0, int(op.get("ttl_seconds") or 0))
+    except (TypeError, ValueError):
+        ttl = 0
+    raw = str(op.get("expires_at") or "").strip()
+    if ttl or not raw:
+        return ttl
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        return 0
+    if len(raw) == 10:  # a bare date means "until the end of that day"
+        when += timedelta(days=1)
+    if when.tzinfo is None:
+        when = when.astimezone()  # naive = server-local time
+    return max(0, int((when - datetime.now().astimezone()).total_seconds()))
+
+
 def manager_prompt(speaker: dict, message: str, history: str, candidates: list[dict]) -> str:
     return (
+        f"Current date and time: {_today()}\n"
         f"Workspace: {config.WORKSPACE_NAME}\n"
         f"Speaker: {speaker['name']} (id: {speaker['id']}, {speaker['role']})\n\n"
         f"Recent conversation in this session:\n{history or '(new session)'}\n\n"
@@ -178,10 +208,7 @@ def normalize_ops(raw) -> list[dict]:
             importance = max(0.0, min(1.0, float(op.get("importance", 0.5))))
         except (TypeError, ValueError):
             importance = 0.5
-        try:
-            ttl = max(0, int(op.get("ttl_seconds") or 0))
-        except (TypeError, ValueError):
-            ttl = 0
+        ttl = _expiry_seconds(op)
         targets = op.get("target_ids") or []
         out.append({
             "action": op["action"],
@@ -239,7 +266,7 @@ class AnthropicLLM:
 
     async def respond(self, speaker: dict, history: list[dict], message: str, memories: list[dict], actions: list[dict]) -> str:
         system = RESPONDER_SYSTEM.format(
-            name=speaker["name"], role=speaker["role"], workspace=config.WORKSPACE_NAME,
+            name=speaker["name"], role=speaker["role"], workspace=config.WORKSPACE_NAME, today=_today(),
             actions=render_actions(actions), memories=render_memories(memories, actions),
         )
         kwargs = dict(
@@ -275,7 +302,7 @@ class AnthropicLLM:
 _OPS_EXAMPLE = json.dumps({"operations": [{
     "action": "add", "target_ids": [], "type": "decision",
     "content": "The team uses pnpm, not npm, for package installs (decided by Alice).",
-    "scope": "workspace", "importance": 0.9, "ttl_seconds": 0,
+    "scope": "workspace", "importance": 0.9, "ttl_seconds": 0, "expires_at": "",
     "user_confirmed_override": False, "reason": "New team decision about tooling.",
 }]})
 
@@ -284,7 +311,7 @@ JSON_INSTRUCTIONS = f"""
 Output format: reply with ONLY a JSON object, no prose and no code fences, of exactly this shape:
 {_OPS_EXAMPLE}
 Allowed action values: {", ".join(ACTIONS)}. Allowed type values: {", ".join(config.MEMORY_TYPES)}.
-Every operation must contain all nine fields. If nothing should change, reply {{"operations": []}}."""
+Every operation must contain all ten fields. If nothing should change, reply {{"operations": []}}."""
 
 
 def _extract_json(text: str):
@@ -365,7 +392,7 @@ class OpenAICompatLLM:
 
     async def respond(self, speaker: dict, history: list[dict], message: str, memories: list[dict], actions: list[dict]) -> str:
         system = RESPONDER_SYSTEM.format(
-            name=speaker["name"], role=speaker["role"], workspace=config.WORKSPACE_NAME,
+            name=speaker["name"], role=speaker["role"], workspace=config.WORKSPACE_NAME, today=_today(),
             actions=render_actions(actions), memories=render_memories(memories, actions),
         )
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": message}]
