@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TeamBrain: shared memory for your team's AI agents</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🧠</span>
+      <div>
+        <div class="title">TeamBrain</div>
+        <div class="subtitle" id="workspace-name">shared memory for your team's AI agents</div>
+      </div>
+    </div>
+    <div class="pills" id="status-pills"></div>
+    <div class="top-actions">
+      <button class="btn ghost small" id="reset-btn" title="Wipe chats + memories and re-seed the demo workspace">↺ Reset demo</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="chat-pane" id="pane-alice" data-user="alice"></section>
+    <section class="chat-pane" id="pane-bob" data-user="bob"></section>
+
+    <aside class="memory-panel">
+      <div class="mp-header">
+        <div class="mp-title">
+          <span class="live-dot" id="live-dot"></span>
+          Team Memory
+          <span class="mp-sub">live · MongoDB change stream</span>
+        </div>
+        <div class="tabs" id="status-tabs">
+          <button data-status="active">Active <span class="count"></span></button>
+          <button data-status="history">History <span class="count"></span></button>
+          <button data-status="all" class="on">All <span class="count"></span></button>
+        </div>
+        <div class="mp-controls">
+          <input id="mem-search" type="search" placeholder="Search memories…" autocomplete="off" />
+          <select id="viewer-select" title="See the memory exactly as one teammate's agent can">
+            <option value="all">👁 Everyone</option>
+            <option value="alice">👁 as Alice</option>
+            <option value="bob">👁 as Bob</option>
+          </select>
+          <select id="group-select" title="Order of the list">
+            <option value="time">Newest first</option>
+            <option value="type">By type</option>
+          </select>
+        </div>
+        <div class="type-filters" id="type-filters"></div>
+      </div>
+      <div class="mp-list" id="memory-list"></div>
+    </aside>
+  </main>
+
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+  <aside class="drawer" id="drawer">
+    <button class="drawer-close" id="drawer-close" aria-label="Close">✕</button>
+    <div id="drawer-body"></div>
+  </aside>
+
+  <div class="toasts" id="toasts"></div>
+
+  <template id="pane-template">
+    <div class="pane-header">
+      <div class="avatar"></div>
+      <div class="who">
+        <div class="name"></div>
+        <div class="role"><span class="role-text"></span> · <span class="sid"></span></div>
+      </div>
+      <div class="pane-actions">
+        <label class="switch" title="Toggle long-term memory for this agent">
+          <input type="checkbox" class="mem-toggle" checked />
+          <span class="slider"></span>
+          <span class="switch-label">Memory ON</span>
+        </label>
+        <button class="btn ghost small new-session" title="Start a fresh chat: only long-term memory carries over">＋ New session</button>
+      </div>
+    </div>
+    <div class="messages"></div>
+    <form class="composer">
+      <div class="prompt-menu" hidden></div>
+      <button class="btn ghost icon prompts-btn" type="button" title="Demo prompts">💡</button>
+      <textarea rows="1"></textarea>
+      <button class="btn primary" type="submit">Send</button>
+    </form>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
