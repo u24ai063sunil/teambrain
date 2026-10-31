@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 # hackathon brief from the organisers, not ours to publish
 *.pdf
+# submission deck + template stay local
+*.pptx
+.~lock.*#
