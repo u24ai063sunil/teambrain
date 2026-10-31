@@ -75,8 +75,8 @@ Rules:
 - Only store what the speaker ASSERTS. Questions ("what rate limit should I use?", "can I add a package?"), requests for code or help, and greetings produce ZERO operations. Never store the answer to a question, never store your own inferences or conclusions, and never store facts derived from existing memories.
 - Anything that only matters for the current turn is not a memory.
 - Write content as one standalone sentence in third person, naming the person when it is about them or was decided by them, and keep exact values (numbers, names, dates). Example: "The payments API is rate-limited to 100 requests per second (stated by Alice)."
-- Messages may be in any language, in Hinglish, or full of typos and shorthand ("r", "u", "pls", "limt"). Understand the intent and always write content in clear, correctly spelled English.
-- Resolve relative dates ("tomorrow", "on Friday", "next week") to absolute dates using the current date, e.g. "There is a freeze on new dependencies starting Wednesday 4 November 2026 (stated by Alice)."
+- Messages may be in any language, in Hinglish, or full of typos and shorthand ("r", "u", "pls", "limt"). Understand the intent and always write content in clear, correctly spelled English ("deploys r blocked" -> "Deploys are blocked").
+- Resolve relative dates ("tomorrow", "on Friday", "next week") to absolute dates written in words, taking the exact date from the calendar in the prompt, e.g. "There is a freeze on new dependencies starting <weekday> <day> <month> <year> (stated by Alice)." Never put ISO timestamps in content, and keep short durations as stated ("is down for the next 2 minutes"); the expiry fields carry the exact time.
 - One operation per distinct piece of information; split compound messages.
 - scope = "private" for personal preferences and personal details about the speaker; "workspace" for project and team knowledge.
 - ttl_seconds: if the information is true only for a stated duration from now ("for the next 2 minutes", "for an hour"), that duration in seconds. Otherwise 0.
@@ -168,6 +168,33 @@ def _today() -> str:
     return datetime.now().astimezone().strftime("%A %d %B %Y, %H:%M (UTC%z)")
 
 
+def _calendar() -> str:
+    """The next 8 days spelled out, so the model looks dates up instead of computing them (it often gets that wrong)."""
+    start = datetime.now().astimezone()
+    days = [start + timedelta(days=i) for i in range(8)]
+    return "; ".join(f"{'today' if i == 0 else 'tomorrow' if i == 1 else d.strftime('%A')} = {_spell(d)} ({d:%Y-%m-%d})"
+                     for i, d in enumerate(days))
+
+
+def _spell(d: datetime) -> str:
+    return f"{d:%A} {d.day} {d:%B %Y}"
+
+
+_ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b")
+
+
+def _humanize_dates(content: str) -> str:
+    """Models sometimes leak ISO timestamps into memory text; spell them out for people."""
+    def sub(m: re.Match) -> str:
+        try:
+            d = datetime.fromisoformat(m.group(1))
+        except ValueError:
+            return m.group(0)
+        return _spell(d) + (f" at {m.group(2)}" if m.group(2) else "")
+    content = _ISO_DATE.sub(sub, content)
+    return re.sub(r"\b0(\d) (January|February|March|April|May|June|July|August|September|October|November|December)\b", r"\1 \2", content)
+
+
 def _expiry_seconds(op: dict) -> int:
     """Seconds until the memory stops being true: an explicit duration wins, else the expires_at date."""
     try:
@@ -191,6 +218,7 @@ def _expiry_seconds(op: dict) -> int:
 def manager_prompt(speaker: dict, message: str, history: str, candidates: list[dict]) -> str:
     return (
         f"Current date and time: {_today()}\n"
+        f"Calendar: {_calendar()}\n"
         f"Workspace: {config.WORKSPACE_NAME}\n"
         f"Speaker: {speaker['name']} (id: {speaker['id']}, {speaker['role']})\n\n"
         f"Recent conversation in this session:\n{history or '(new session)'}\n\n"
@@ -216,7 +244,7 @@ def normalize_ops(raw) -> list[dict]:
             "action": op["action"],
             "target_ids": [str(t).strip("[] ") for t in (targets if isinstance(targets, list) else [targets])],
             "type": op.get("type") if op.get("type") in config.MEMORY_TYPES else "fact",
-            "content": str(op.get("content") or ""),
+            "content": _humanize_dates(str(op.get("content") or "")),
             "scope": op.get("scope") if op.get("scope") in ("workspace", "private") else "workspace",
             "importance": importance,
             "ttl_seconds": ttl,
