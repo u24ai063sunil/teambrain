@@ -162,7 +162,8 @@ function renderPills() {
       engine === "fallback-exact-scan" ? "Atlas vector index not available; using an exact cosine scan" : "Candidate search engine used by the last query"),
     pill("Embeddings", c.embeddings.provider === "voyage" ? c.embeddings.model : "fake (offline)", c.embeddings.provider === "voyage",
       `${c.embeddings.dims} dimensions`),
-    pill("LLM", llm, c.llm.provider !== "mock", `chat: ${c.llm.chat_model}\nmemory manager: ${c.llm.memory_model} (${c.llm.provider})`),
+    pill("LLM", llm, c.llm.provider !== "mock", `chat: ${c.llm.chat_model}\nmemory manager: ${c.llm.memory_model} (${c.llm.provider})`
+      + (c.llm.fallback ? `\nbackup provider: ${c.llm.fallback}` : "\nno backup provider configured")),
   ].join("");
   $("#live-dot").classList.toggle("live", c.change_stream === "live");
 }

@@ -41,6 +41,13 @@ LLM_MEMORY_MODEL = os.getenv("LLM_MEMORY_MODEL") or (
     "openai/gpt-oss-20b" if LLM_PROVIDER == "groq" and not os.getenv("LLM_CHAT_MODEL") else LLM_CHAT_MODEL
 )
 
+# Optional backup OpenAI-compatible provider, used when the primary errors or stays rate limited.
+LLM_FALLBACK_PROVIDER = os.getenv("LLM_FALLBACK_PROVIDER", "").lower()
+_fb_url, _fb_model = OPENAI_COMPAT_PRESETS.get(LLM_FALLBACK_PROVIDER, ("", ""))
+LLM_FALLBACK_BASE_URL = (os.getenv("LLM_FALLBACK_BASE_URL") or _fb_url).rstrip("/")
+LLM_FALLBACK_API_KEY = os.getenv("LLM_FALLBACK_API_KEY", "")
+LLM_FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL") or _fb_model
+
 # Anthropic
 CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-opus-5-5")
 MEMORY_MODEL = os.getenv("MEMORY_MODEL", "claude-haiku-5-5")

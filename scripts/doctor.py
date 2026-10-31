@@ -97,14 +97,17 @@ async def main():
         if not llm.chat_model:
             print(f" {BAD} no model set: put a model id in LLM_CHAT_MODEL")
             return
-        for model in dict.fromkeys((llm.memory_model, llm.chat_model)):
-            try:
-                text = await llm.complete(model, [{"role": "user", "content": "Reply with just: OK"}])
-                print(f" {OK} {model} @ {llm.base_url} answered {text.strip()[:20]!r}")
-            except ProviderError as e:
-                print(f" {BAD} {model}: {e}")
-            except Exception as e:  # noqa: BLE001
-                print(f" {BAD} {model}: {type(e).__name__} {e}")
+        providers = [llm] + ([llm.fallback] if llm.fallback else [])
+        for p in providers:
+            for model in dict.fromkeys((p.memory_model, p.chat_model)):
+                label = f"{model} @ {p.base_url}" + (" (fallback)" if p is not llm else "")
+                try:
+                    text = await p.complete(model, [{"role": "user", "content": "Reply with just: OK"}])
+                    print(f" {OK} {label} answered {text.strip()[:20]!r}")
+                except ProviderError as e:
+                    print(f" {BAD} {label}: {e}")
+                except Exception as e:  # noqa: BLE001
+                    print(f" {BAD} {label}: {type(e).__name__} {e}")
 
 
 if __name__ == "__main__":

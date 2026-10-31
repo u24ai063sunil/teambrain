@@ -40,6 +40,13 @@ LLM_API_KEY=gsk_...          # Groq: console.groq.com/keys · Gemini: aistudio.g
 ```
 Leave `ANTHROPIC_API_KEY` empty, or set `LLM_PROVIDER` explicitly. `doctor.py` checks the model answers. Free tiers have low rate limits (requests per minute), and every chat message costs 2 calls, so don't spam during the demo.
 
+**Backup provider (recommended for the demo):** if the primary errors or stays rate limited for more than ~5 s, each call switches to a second free provider:
+```bash
+LLM_FALLBACK_PROVIDER=gemini
+LLM_FALLBACK_API_KEY=...     # aistudio.google.com/apikey
+# LLM_FALLBACK_MODEL=...     # optional; defaults to the provider preset
+```
+
 ## Atlas setup (about 10 minutes)
 
 1. **Create a cluster:** https://cloud.mongodb.com, then *Create* → **M0 Free** (any region). M0 supports Vector Search, TTL and change streams.
@@ -102,6 +109,7 @@ Leave `ANTHROPIC_API_KEY` empty, or set `LLM_PROVIDER` explicitly. `doctor.py` c
 | `VOYAGE_API_KEY`, `VOYAGE_MODEL`, `EMBED_DIM` | `voyage-3.5`, 1024 | Same model for documents and queries (`input_type` differs) |
 | `ANTHROPIC_API_KEY` | | Paid option |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_MEMORY_MODEL`, `LLM_BASE_URL` | auto | Free option: `groq` / `gemini` / `ollama` / `openrouter` / `openai` |
+| `LLM_FALLBACK_PROVIDER`, `LLM_FALLBACK_API_KEY`, `LLM_FALLBACK_MODEL`, `LLM_FALLBACK_BASE_URL` | off | Backup OpenAI-compatible provider used when the primary fails |
 | `CHAT_MODEL` | `claude-opus-5-5` | Answers. Server-side refusal fallback (`fallbacks: "default"`) is enabled for it |
 | `MEMORY_MODEL` | `claude-haiku-5-5` | Fast structured-output memory manager |
 | `CHAT_EFFORT` | `low` | Raise to `medium` for richer answers (slower) |

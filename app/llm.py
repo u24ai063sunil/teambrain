@@ -330,28 +330,30 @@ class ProviderError(Exception):
 
 
 class OpenAICompatLLM:
-    name = "openai-compatible"
-
-    def __init__(self):
-        self.base_url = config.LLM_BASE_URL
-        self.chat_model = config.LLM_CHAT_MODEL
-        self.memory_model = config.LLM_MEMORY_MODEL
-        self.name = config.LLM_PROVIDER
-        headers = {"Authorization": f"Bearer {config.LLM_API_KEY}"} if config.LLM_API_KEY else {}
-        self.http = httpx.AsyncClient(timeout=90, headers=headers)
+    def __init__(self, provider: str, base_url: str, api_key: str, chat_model: str, memory_model: str,
+                 fallback: "OpenAICompatLLM | None" = None):
+        self.name = provider
+        self.base_url = base_url
+        self.chat_model = chat_model
+        self.memory_model = memory_model
+        self.fallback = fallback
+        # With a backup provider, stop waiting on a rate-limited primary early and switch instead.
+        self.max_wait = 5.0 if fallback else 25.0
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.http = httpx.AsyncClient(timeout=60, headers=headers)
 
     async def _post(self, body: dict) -> httpx.Response:
-        """POST with patience for free-tier rate limits: honour retry-after, up to ~25s in total."""
+        """POST with patience for free-tier rate limits: honour retry-after, up to max_wait in total."""
         waited = 0.0
         while True:
             resp = await self.http.post(f"{self.base_url}/chat/completions", json=body)
-            if resp.status_code != 429 or waited >= 25:
+            if resp.status_code != 429 or waited >= self.max_wait:
                 return resp
             try:
                 delay = float(resp.headers.get("retry-after", "3"))
             except ValueError:
                 delay = 3.0
-            delay = min(max(delay, 1.0), 25 - waited)
+            delay = min(max(delay, 1.0), self.max_wait - waited)
             log.warning("%s rate limited; retrying in %.1fs", body["model"], delay)
             await asyncio.sleep(delay)
             waited += delay
@@ -374,13 +376,24 @@ class OpenAICompatLLM:
         choice = resp.json()["choices"][0]
         return (choice.get("message") or {}).get("content") or ""
 
+    async def _run(self, role: str, messages: list[dict], json_mode: bool = False) -> str:
+        """Call the chat or memory model, switching to the backup provider if this one fails."""
+        model = self.memory_model if role == "memory" else self.chat_model
+        try:
+            return await self.complete(model, messages, json_mode)
+        except (ProviderError, httpx.HTTPError) as e:
+            if not self.fallback:
+                raise
+            log.warning("%s failed (%s); falling back to %s", self.name, e or type(e).__name__, self.fallback.name)
+            return await self.fallback._run(role, messages, json_mode)
+
     async def manage_memory(self, speaker: dict, message: str, history: str, candidates: list[dict]) -> list[dict]:
         messages = [
             {"role": "system", "content": MANAGER_SYSTEM + JSON_INSTRUCTIONS},
             {"role": "user", "content": manager_prompt(speaker, message, history, candidates)},
         ]
         try:
-            text = await self.complete(self.memory_model, messages, json_mode=True)
+            text = await self._run("memory", messages, json_mode=True)
             return normalize_ops(_extract_json(text))
         except ProviderError as e:
             log.error("memory manager call failed: %s", e)
@@ -397,7 +410,7 @@ class OpenAICompatLLM:
         )
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": message}]
         try:
-            return (await self.complete(self.chat_model, messages)).strip()
+            return (await self._run("chat", messages)).strip()
         except ProviderError as e:
             return f"_Model error: {e}_"
         except httpx.HTTPError:
@@ -481,7 +494,16 @@ def get_llm():
         return AnthropicLLM()
     if config.LLM_PROVIDER == "mock":
         return MockLLM()
-    return OpenAICompatLLM()
+    fallback = None
+    if config.LLM_FALLBACK_PROVIDER and config.LLM_FALLBACK_MODEL:
+        fallback = OpenAICompatLLM(
+            config.LLM_FALLBACK_PROVIDER, config.LLM_FALLBACK_BASE_URL, config.LLM_FALLBACK_API_KEY,
+            config.LLM_FALLBACK_MODEL, config.LLM_FALLBACK_MODEL,
+        )
+    return OpenAICompatLLM(
+        config.LLM_PROVIDER, config.LLM_BASE_URL, config.LLM_API_KEY,
+        config.LLM_CHAT_MODEL, config.LLM_MEMORY_MODEL, fallback=fallback,
+    )
 
 
 llm = get_llm()
