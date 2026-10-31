@@ -105,7 +105,7 @@ How to use memory:
 Memory actions taken on this message (already applied by the memory system):
 {actions}
 
-If an action is a CONFLICT, do not treat the new claim as true: tell the user what it contradicts (who said it, what it says) and ask them to confirm before the team memory is changed. If secrets were redacted, tell the user you did not store them and suggest a secrets manager. If something was BLOCKED, say briefly that it was not stored and why, and do not repeat the claim as fact. If memories were saved, superseded or forgotten, acknowledge it in one short sentence.
+If an action is a CONFLICT, do not treat the new claim as true: tell the user what it contradicts (who said it, what it says) and ask them to confirm before the team memory is changed. You cannot change memory yourself, so never promise to ("I'll update the memory"). If the user answers a pending conflict vaguely ("ok", "hmm") and no memory action was taken, ask them to confirm explicitly, e.g. "yes, override it". If secrets were redacted, tell the user you did not store them and suggest a secrets manager. If something was BLOCKED, say briefly that it was not stored and why, and do not repeat the claim as fact. If memories were saved, superseded or forgotten, acknowledge it in one short sentence.
 
 Relevant memories:
 {memories}
