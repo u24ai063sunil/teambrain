@@ -200,6 +200,13 @@ def _owner_name(user_id: str) -> str:
     return config.USERS.get(user_id, {}).get("name", user_id)
 
 
+BLOCKED_PERSONAL = "Personal claims about teammates (employment, performance, health, private life) are not stored in team memory."
+
+
+def team_member_names() -> list[str]:
+    return [u["name"] for u in config.USERS.values()]
+
+
 async def apply_operations(speaker_id: str, ops: list[dict], candidates: list[dict], source: dict) -> list[dict]:
     """Validate the LLM's proposed operations against deterministic rules, then execute them."""
     by_ref = {c["ref"]: c["memory"] for c in candidates}
@@ -215,6 +222,10 @@ async def apply_operations(speaker_id: str, ops: list[dict], candidates: list[di
         if action in ("add", "supersede", "conflict"):
             content, found = guard.redact(content)
             if found or guard.contains_redaction(content) or not content:
+                continue
+            # Rule: no claims about people's employment, performance, health or private life.
+            if guard.sensitive_person_claim(content, team_member_names()):
+                actions.append({"kind": "blocked", "content": content, "reason": BLOCKED_PERSONAL})
                 continue
         if action in ("supersede", "conflict", "reinforce") and not targets:
             action = "add"  # model referenced an unknown id; treat as new information

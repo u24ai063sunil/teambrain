@@ -463,6 +463,7 @@ function actionChip(a) {
     case "forget": return { cls: "forget", text: `🗑 forgot: ${short(a.content)}`, id: a.memory_id };
     case "redacted": return { cls: "redacted", text: `🔒 secret redacted (${a.kinds.join(", ")}), never stored` };
     case "reinforce": return { cls: "reinforce", text: `✓ already known: ${short(a.content, 40)}`, id: a.memory_id };
+    case "blocked": return { cls: "blocked", text: `⛔ not stored: ${a.content ? short(a.content, 40) : "message tried to override instructions"}` };
     default: return { cls: "", text: a.kind };
   }
 }
@@ -556,6 +557,7 @@ async function send(pane, ta) {
     for (const a of data.actions) {
       if (a.kind === "conflict") toast(`⚠️ Conflict with ${esc(a.target_owner_name)}'s memory. Asking ${esc(user(pane.userId).name)} to confirm.`, "err");
       if (a.kind === "redacted") toast(`🔒 Secret detected and redacted: ${esc(a.kinds.join(", "))}`, "warn");
+      if (a.kind === "blocked") toast(`⛔ Memory write blocked: ${esc(a.reason)}`, "err");
     }
     if (data.engine?.name && data.engine.name !== state.config.engine?.name) { state.config.engine = data.engine; renderPills(); }
   } catch (err) {

@@ -5,7 +5,7 @@ from . import config, guard
 from .db import messages, now, retrievals, to_json
 from .embeddings import embed_one
 from .llm import llm
-from .memory import apply_operations, recall, touch
+from .memory import BLOCKED_PERSONAL, apply_operations, recall, team_member_names, touch
 
 HISTORY_TURNS = 10
 # Models sometimes cite as (M1), 【M1】, [M1, M2] or (M1–M4); normalise every form to [M1][M2] before counting.
@@ -61,12 +61,21 @@ async def chat_turn(user_id: str, session_id: str, text: str, use_memory: bool =
     neighbours = await recall(user_id, qvec, k=8)
 
     # 2. Memory manager proposes operations; the engine validates and applies them.
-    ops = await llm.manage_memory(speaker, clean, _history_text(history, speaker), neighbours["items"])
-    source = {"kind": "chat", "session_id": session_id, "message_id": user_msg["_id"], "quote": clean[:400]}
     actions: list[dict] = []
     if secret_kinds:
         actions.append({"kind": "redacted", "kinds": secret_kinds})
+    if guard.looks_like_injection(clean):
+        # A message that tries to steer the system never gets to write to team memory.
+        ops = []
+        actions.append({"kind": "blocked", "reason": "The message tries to override the assistant's instructions, so team memory was left unchanged."})
+    else:
+        ops = await llm.manage_memory(speaker, clean, _history_text(history, speaker), neighbours["items"])
+    source = {"kind": "chat", "session_id": session_id, "message_id": user_msg["_id"], "quote": clean[:400]}
     actions += await apply_operations(user_id, ops, neighbours["items"], source)
+    # The model may simply skip a personal claim; make the refusal explicit so the answer can't present it as fact.
+    if (not clean.rstrip().endswith("?") and guard.sensitive_person_claim(clean, team_member_names())
+            and not any(a["kind"] == "blocked" for a in actions)):
+        actions.append({"kind": "blocked", "reason": BLOCKED_PERSONAL})
 
     # 3. Recall again (memory may have just changed) and answer.
     recalled = await recall(user_id, qvec) if use_memory else {"items": [], "engine": neighbours["engine"], "filter": None}

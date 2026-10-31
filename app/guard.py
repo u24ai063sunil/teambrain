@@ -44,3 +44,27 @@ def redact(text: str) -> tuple[str, list[str]]:
 
 def contains_redaction(text: str) -> bool:
     return "[REDACTED" in text
+
+
+# ---- Memory poisoning --------------------------------------------------------------------------
+# The memory manager is told the same rules; these checks make them hold even if the model is fooled.
+_INJECTION = re.compile(
+    r"(?i)\b(?:ignore|disregard|override|bypass)\s+(?:all\s+|any\s+|the\s+|your\s+|of\s+)*"
+    r"(?:previous|prior|above|earlier|system|original)\s+(?:instructions?|prompts?|directives?)"
+    r"|\byou\s+are\s+now\b|\bsystem\s+prompt\b|\bjailbreak\b|\bdeveloper\s+mode\b"
+)
+_SENSITIVE = (
+    r"fired|laid\s+off|sacked|let\s+go|demoted|resign\w*|incompetent|lazy|useless|stupid|idiot|dumb"
+    r"|salary|pregnan\w*|divorc\w*|sick|ill(?:ness)?|disease|diagnos\w*|therapy|depress\w*"
+)
+
+
+def looks_like_injection(text: str) -> bool:
+    """The message tries to steer the assistant/memory system rather than share information."""
+    return bool(_INJECTION.search(text))
+
+
+def sensitive_person_claim(text: str, people: list[str]) -> bool:
+    """A claim about someone's employment, performance, character, health or private life."""
+    who = "|".join([re.escape(p) for p in people] + ["he", "she", "they", "him", "her", "his", "their"])
+    return bool(re.search(rf"(?i)\b(?:{who})\b[^.;\n]{{0,40}}?\b(?:{_SENSITIVE})\b", text))
