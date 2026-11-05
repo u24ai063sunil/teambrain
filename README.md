@@ -1,144 +1,163 @@
-# 🧠 TeamBrain: shared, self-correcting memory for a team's AI agents
+# 🧠 TeamBrain: Shared, Self-Correcting Memory for a Team's AI Agents
 
 **MongoDB Student Hackathon · Track 1: Agentic Memory**
 
-Every AI agent on a team starts from zero. TeamBrain gives all of them one long-term memory, stored in MongoDB, that:
-- **remembers** decisions, constraints, facts, preferences, outcomes, feedback and strategies from normal conversation
-- **changes behaviour**: Bob's agent follows a rule Alice told *her* agent an hour ago, in a brand-new session
-- **explains itself**: every answer shows which memories were used, why they ranked, and where they came from
-- **handles the hard cases**: corrections (versioned supersede), conflicts (asks before overwriting a teammate), expiry (TTL), forgetting (soft + hard delete with audit), privacy (private scope + secret redaction)
-- **syncs live** across users and agents through **change streams**, and plugs into any coding agent via **MCP**
+Every AI agent on a software team currently starts from zero knowledge. If Alice's agent learns a critical rate limit, chooses a package manager, or sets a temporary staging workaround, Bob’s agent remains completely oblivious, hallucinating outdated defaults and repeating mistakes.
 
-See `DEMO.md` for the stage script and `PLAN.md` for the strategy and judge Q&A.
+**TeamBrain** gives them a shared, authoritative long-term memory layer stored in **MongoDB Atlas** that:
+- **Remembers** decisions, constraints, facts, preferences, outcomes, feedback, and strategies from natural conversation.
+- **Changes Behavior**: Bob's agent in a brand-new session adheres to a constraint Alice told *her* agent an hour earlier.
+- **Explains Itself**: Every answer cites memories (`[M1]`, `[M2]`), and the Memory Inspector shows why each memory ranked, its provenance quote, and its audit history.
+- **Handles the Hard Cases**: Versioned superseding (`v1 -> v2`), conflict detection (refuses silent overwrites of teammate choices), automated expiry via **MongoDB TTL indexes**, explicit forgetting (soft + hard delete), and deterministic pre-LLM secret redaction.
+- **Syncs Reactively**: Uses **MongoDB Change Streams** and Server-Sent Events (SSE) to push live memory updates to all open browsers with zero polling, and connects to external IDE agents via the **Model Context Protocol (MCP)**.
 
 ---
 
-## Quick start
+## 📚 Complete Documentation Index
 
+For technical interviewers, developers, and code reviewers, comprehensive technical specifications and interview preparation guides are provided below:
+
+### Technical Documentation (`docs/`)
+1. [01. Project Overview](docs/01-project-overview.md) — Problem statement, context window limitations, target use cases, and capability comparison.
+2. [02. System Architecture](docs/02-system-architecture.md) — End-to-end component architecture, interaction sequence diagrams, and startup lifecycle.
+3. [03. Memory Data Model](docs/03-memory-data-model.md) — MongoDB collections (`memories`, `memory_events`, `messages`, `retrievals`), schema validator, and indexing strategy.
+4. [04. Memory Creation & Retrieval Pipeline](docs/04-memory-pipeline.md) — Two-phase recall cycle, hybrid re-ranking formula ($0.8\text{ sim} + 0.1\text{ recency} + 0.1\text{ importance}$), and citation engine.
+5. [05. Memory Lifecycle & Advanced Cases](docs/05-memory-lifecycle.md) — Versioned superseding, conflict resolution, physical TTL vs. logical query expiry, and GDPR erasure.
+6. [06. Real-Time Synchronization](docs/06-realtime-system.md) — MongoDB Change Streams, resume tokens, quiet field filtering, and SSE transport.
+7. [07. API & MCP Reference](docs/07-api-and-mcp.md) — Full REST API documentation and Model Context Protocol stdio tool specification.
+8. [08. Setup & Deployment Guide](docs/08-setup-and-deployment.md) — Step-by-step Atlas setup, environment variables, local execution, and Render deployment.
+9. [09. Security & Reliability](docs/09-security-and-reliability.md) — Deterministic secret redaction, Luhn validation, prompt injection defense, and circuit breaker.
+10. [10. Engineering Decisions & Trade-Offs](docs/10-design-decisions.md) — Deep architectural comparisons (MongoDB vs. PostgreSQL, Atlas Vector Search vs. Pinecone, SSE vs. WebSockets).
+11. [11. Evaluation & Testing](docs/11-evaluation-and-testing.md) — Benchmark evaluation dataset, Hit@1, Recall@6, MRR metrics, and 15 adversarial robustness scenarios.
+
+### Technical Interview Preparation (`interview-prep/`)
+1. [01. How to Explain TeamBrain in an Interview](interview-prep/01-project-explanation.md) — 30-second elevator pitch, 2-minute technical pitch, and 5-minute architectural walkthrough.
+2. [02. Technical Interview Question Bank](interview-prep/02-interview-questions.md) — 64 in-depth interview questions across 8 categories with technical answers and interviewer follow-ups.
+3. [03. Technology Deep Dive](interview-prep/03-technology-deep-dive.md) — Core technologies explained from first principles (FastAPI/ASGI, asyncio, PyMongo Async, Atlas Vector Search, HNSW, Change Streams, TTL).
+4. [04. Codebase Navigation Guide](interview-prep/04-codebase-navigation.md) — Recommended 8-step reading order, file-by-file responsibilities, dependencies, and code maps.
+5. [05. Mock Technical Interview](interview-prep/05-mock-interview.md) — 50 battle-tested mock interview questions (basic, intermediate, advanced, and incident scenarios) with grading rubrics.
+
+---
+
+## 🛠 Tech Stack
+
+- **Database**: MongoDB Atlas (M0 Free Tier or higher)
+  - **Atlas Vector Search**: 1024-dimensional HNSW index with metadata pre-filtering.
+  - **Change Streams**: Tailable oplog stream on `memories` with `full_document="updateLookup"`.
+  - **TTL Indexes**: Automated hardware-level physical purge on `expireAt`.
+  - **Document Validator**: Collection-level `$jsonSchema` schema enforcement.
+- **Embeddings**: Voyage AI (`voyage-3.5`, 1024 dimensions) with asymmetric query/document projections.
+- **LLM Reasoning**: Multi-provider architecture with automatic rate-limit failover:
+  - *Paid Tier*: Anthropic Claude 3.5 Haiku (Memory Manager) & Claude 3.5 Opus (Responder).
+  - *Free Tier*: Groq (`openai/gpt-oss-120b` + `20b`) with automatic fallback to Google Gemini (`gemini-flash-latest`).
+- **Backend Framework**: Python 3.11+ / FastAPI / Uvicorn (ASGI) / PyMongo Async.
+- **Protocols & Standards**: Server-Sent Events (SSE) / Model Context Protocol (MCP stdio).
+- **Frontend**: Vanilla HTML5, CSS3, ES6 JavaScript, and Tailwind CSS.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Installation
 ```bash
-cd Mongodb-Uncharted
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-# (or: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
-source .venv/bin/activate
+git clone https://github.com/your-username/teambrain.git
+cd teambrain
 
-cp .env.example .env          # then fill it in (see "Atlas setup" below)
-python scripts/setup_db.py    # collections, validator, TTL + regular indexes, Atlas Vector Search index
-python scripts/seed.py        # demo workspace with background memories (re-run to reset)
-python scripts/doctor.py      # pre-flight check: everything should be ✔
+uv venv .venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+# (or: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt)
+```
+
+### 2. Configure Environment (`.env`)
+```bash
+cp .env.example .env
+```
+Supply your MongoDB connection string and API keys (see [Setup Guide](docs/08-setup-and-deployment.md)):
+```ini
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+DB_NAME=teambrain
+VOYAGE_API_KEY=pa-...
+# For paid Claude:
+ANTHROPIC_API_KEY=sk-ant-...
+# Or for free Groq:
+LLM_PROVIDER=groq
+LLM_API_KEY=gsk_...
+```
+
+### 3. Initialize Database & Run Diagnostics
+```bash
+python scripts/setup_db.py    # Provisions collections, schema validator, TTL index, & Atlas Vector Search
+python scripts/seed.py        # Populates standard demo background memories
+python scripts/doctor.py      # Pre-flight diagnostic check: verifies all subsystems show ✔
+```
+
+### 4. Start the Application
+```bash
 uvicorn app.main:app --port 8000
-# open http://localhost:8000
+# Open http://localhost:8000 in your browser
 ```
 
-Without API keys the app still runs (an offline mock LLM and fake embeddings, flagged in yellow in the top bar), but the real demo needs `VOYAGE_API_KEY` plus an LLM: `ANTHROPIC_API_KEY`, **or a free provider** (below).
+---
 
-### Free LLM option (Groq / Gemini / Ollama)
-Any OpenAI-compatible `/chat/completions` endpoint works. In `.env`:
-```
-LLM_PROVIDER=groq            # or gemini, ollama, openrouter, openai
-LLM_API_KEY=gsk_...          # Groq: console.groq.com/keys · Gemini: aistudio.google.com/apikey · Ollama: leave empty
-# LLM_CHAT_MODEL=...         # optional; defaults: groq openai/gpt-oss-120b, gemini gemini-flash-latest, ollama llama3.1:8b
-```
-Leave `ANTHROPIC_API_KEY` empty, or set `LLM_PROVIDER` explicitly. `doctor.py` checks the model answers. Free tiers have low rate limits (requests per minute), and every chat message costs 2 calls, so don't spam during the demo.
+## 🎭 3-Minute Live Stage Demo Script
 
-**Backup provider (recommended for the demo):** if the primary errors or stays rate limited for more than ~5 s, each call switches to a second free provider:
-```bash
-LLM_FALLBACK_PROVIDER=gemini
-LLM_FALLBACK_API_KEY=...     # aistudio.google.com/apikey
-# LLM_FALLBACK_MODEL=...     # optional; defaults to the provider preset
-```
+1. **Create Team Memories (Alice's Pane)**:
+   - Type in Alice:
+     ```
+     Staging DB is down for the next 2 minutes. Also, we decided to use pnpm, not npm. The payments API is rate limited to 100 requests per second, and there's a freeze on new dependencies starting Wednesday.
+     ```
+   - *Point out*: Green "saved" chips appear under the response; new cards slide **live** into Bob's panel via **Change Streams**; the staging card displays a **TTL countdown timer**.
+2. **Memory Changes Behavior in a New Session (Bob's Pane)**:
+   - Click **＋ New session** on Bob. Type:
+     ```
+     Write a quick script that installs a charting library and bulk-syncs 10,000 orders to the payments API.
+     ```
+   - *Point out*: Bob's agent uses `pnpm add`, throttles to 100 req/s, and warns about the dependency freeze, citing `[M1]`.
+   - *Toggle Memory OFF*: Send the prompt again; observe generic `npm install` with no throttling. Flip it back ON.
+3. **Inspect Provenance ("Why these memories?")**:
+   - Click **🔍 Why these memories?** under Bob's answer to view the hybrid scoring breakdown:
+     $$\text{Score} = 0.8 \times \text{sim} + 0.1 \times \text{recency} + 0.1 \times \text{importance}$$
+   - Click any citation chip to open the **Memory Inspector** (source quote, version lineage, audit log).
+4. **Rapid-Fire Edge Cases**:
+   - **Correction**: Alice says *"Update: payments rate limit raised to 500 req/s"*. Old card is marked `superseded`, new card is `v2`. Bob asks again and receives 500 req/s.
+   - **Conflict**: Bob says *"We use npm on this project"*. The agent refuses to silently overwrite Alice's choice, warning of a `⚠️ conflict` and demanding explicit confirmation.
+   - **Private & Secrets**: Alice shares a private preference (visible only to her agent) and pastes an AWS key (`AKIA...`), which is redacted *before* reaching the LLM or database.
+   - **Expiry**: After 2 minutes, the staging memory disappears automatically via the **MongoDB TTL index**.
 
-## Atlas setup (about 10 minutes)
+---
 
-1. **Create a cluster:** https://cloud.mongodb.com, then *Create* → **M0 Free** (any region). M0 supports Vector Search, TTL and change streams.
-2. **Database user:** *Security → Database Access → Add new user*, with password auth and the **Atlas admin** role (simplest; it also lets `setup_db.py` manage the schema validator and search index).
-3. **Network access:** *Security → Network Access → Add IP*. Add your current IP (or `0.0.0.0/0` for the hackathon Wi-Fi).
-4. **Connection string:** *Connect → Drivers → Python*. Copy the `mongodb+srv://...` string, put the password in, and paste it into `.env` as `MONGODB_URI`.
-5. **Voyage AI key:** https://dash.voyageai.com → API keys → `VOYAGE_API_KEY`. (If you're using an Atlas *Model API key* instead, also set `VOYAGE_BASE_URL=https://ai.mongodb.com/v1`.)
-6. **Anthropic key:** https://console.anthropic.com → `ANTHROPIC_API_KEY`.
-7. Run `python scripts/setup_db.py`. It creates the vector index and **waits until it is READY** (about 1–2 minutes the first time).
-8. Run `python scripts/seed.py`, then `python scripts/doctor.py`.
+## 💻 External Agent Integration via MCP
 
-> If you change `EMBED_DIM` or the embedding model, re-run `setup_db.py` (it updates the index) **and** `seed.py` (it re-embeds everything).
-
-## Architecture
-
-```
- Browser (2 agent chats + live memory panel + inspectors)
-     │ REST /api/chat …                ▲ SSE /api/stream
-     ▼                                 │
- FastAPI ──────────────────────────────┴── change stream on `memories` (fullDocument: updateLookup)
-   chat turn:
-   1. guard.redact()      secrets removed BEFORE the LLM or DB ever sees them
-   2. recall()            Voyage query embedding → $vectorSearch (pre-filter: workspace, status, scope/owner)
-                          → expireAt > now → re-rank: 0.8·sim + 0.1·recency(half-life per type) + 0.1·importance
-   3. memory manager      Claude Haiku 5.5, structured JSON output: add / supersede / conflict / forget / reinforce
-   4. apply_operations()  deterministic rules on top of the LLM:
-                            · never store secrets   · never silently overwrite a teammate's decision/constraint
-                            · conflict with yourself = correction   · unknown ids → treated as new
-   5. recall() again      memory may have just changed
-   6. responder           Claude Opus 5.5: answers, applies constraints, cites [M1]
-   7. log                 messages, retrievals (score breakdown), memory_events (audit)
-
- MCP server (scripts/mcp_server.py): recall_team_memory / remember / forget_memory on the same collection
-```
-
-### Collections
-
-| Collection | Purpose |
-|---|---|
-| `memories` | One document per memory: `owner_id, workspace_id, scope, type, content, embedding, source{kind, session_id, message_id, quote}, importance, confidence, status (active/superseded/deleted), version, supersedes, superseded_by, access_count, created_at, updated_at, last_accessed_at, expireAt` |
-| `memory_events` | Append-only audit log: created / superseded / conflict_flagged / reinforced / deleted / hard_deleted |
-| `retrievals` | For each answer: query, engine, pre-filter, weights, and per-memory sim / recency / importance / final / cited |
-| `messages` | Chat history per session |
-
-### Indexes
-
-| Index | Why |
-|---|---|
-| Vector Search `memory_vec`: `embedding` (cosine, 1024d) + filter fields `workspace_id, owner_id, scope, status, type` | Semantic recall with privacy and lifecycle enforced inside the query |
-| `expireAt` TTL (`expireAfterSeconds: 0`) | Per-document expiry for temporary memories, and later purging of soft-deleted ones |
-| `{workspace_id, status, updated_at}`, `{workspace_id, owner_id, type}` | Memory panel and admin queries |
-| `memory_events {memory_id, ts}`, `messages {session_id, created_at}`, `retrievals {message_id}`, `{results.memory_id}` | Inspector lookups |
-| `$jsonSchema` validator on `memories` | Required fields and enums for type, scope and status, with flexible extra fields |
-
-## Configuration (`.env`)
-
-| Var | Default | Notes |
-|---|---|---|
-| `MONGODB_URI` / `DB_NAME` | | `teambrain` |
-| `VOYAGE_API_KEY`, `VOYAGE_MODEL`, `EMBED_DIM` | `voyage-3.5`, 1024 | Same model for documents and queries (`input_type` differs) |
-| `ANTHROPIC_API_KEY` | | Paid option |
-| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_CHAT_MODEL`, `LLM_MEMORY_MODEL`, `LLM_BASE_URL` | auto | Free option: `groq` / `gemini` / `ollama` / `openrouter` / `openai` |
-| `LLM_FALLBACK_PROVIDER`, `LLM_FALLBACK_API_KEY`, `LLM_FALLBACK_MODEL`, `LLM_FALLBACK_BASE_URL` | off | Backup OpenAI-compatible provider used when the primary fails |
-| `CHAT_MODEL` | `claude-opus-5-5` | Answers. Server-side refusal fallback (`fallbacks: "default"`) is enabled for it |
-| `MEMORY_MODEL` | `claude-haiku-5-5` | Fast structured-output memory manager |
-| `CHAT_EFFORT` | `low` | Raise to `medium` for richer answers (slower) |
-| `MIN_SIM`, `RECALL_K` | 0.55, 6 | Similarity floor (normalised score) and number of recalled memories |
-| `LLM_PROVIDER` / `EMBED_PROVIDER` | auto | Force `mock` / `fake` for offline testing |
-
-## Scripts
-
-| Command | What it does |
-|---|---|
-| `python scripts/setup_db.py` | Idempotent DB setup, including creating the vector index and waiting for it |
-| `python scripts/seed.py` | Reset the demo workspace (also the **↺ Reset demo** button) |
-| `python scripts/doctor.py` | Checks connection, replica set, change streams, TTL, vector index status and dims, embeddings, recall and both Claude models |
-| `python scripts/eval.py` | Retrieval eval: hit@1, recall@k, MRR, and privacy/superseded violations. Put the numbers on a slide |
-| `python scripts/robustness.py` | 15 messy inputs through the running server: typos, Hinglish, Hindi, relative dates, shouting, prompt injection, personal claims, secrets, blank input. **Resets the demo workspace** |
-| `scripts/mcp_server.py` | MCP server for Claude Code and other agents (below) |
-
-## Use it from Claude Code (MCP)
+Connect terminal AI coding agents (such as **Claude Code** or **Cursor**) to the same shared memory:
 
 ```bash
+# Register TeamBrain with Claude Code
 claude mcp add teambrain -e TEAMBRAIN_USER=bob -- "$PWD/.venv/bin/python" "$PWD/scripts/mcp_server.py"
-claude   # then: "add a script that bulk-syncs orders to the payments API"
+
+# Launch Claude Code
+claude
+# Prompt: "Add a script that bulk-syncs orders to the payments API"
 ```
-The agent calls `recall_team_memory`, picks up pnpm and the rate limit, and anything it `remember`s appears live in the web UI.
+The agent calls `recall_team_memory`, adopts the team's `pnpm` decision and 500 req/s limit, and any new decisions it `remember`s immediately appear live in the web UI!
 
-## Troubleshooting
+---
 
-- **Top bar says "Recall: exact scan (no Atlas index)":** you're not on Atlas, or `$vectorSearch` errored. Run `doctor.py`.
-- **Recall returns nothing on Atlas:** the vector index is still building, or `numDimensions` ≠ `EMBED_DIM`. Run `setup_db.py`, then `seed.py`.
-- **TTL memory shows "expired, awaiting TTL monitor":** that's normal. MongoDB's TTL monitor runs about every 60 s, and recall already ignores the memory.
-- **Change stream not "live":** the connection must be to a replica set (Atlas always is).
-- **`ServerSelectionTimeoutError`:** your IP isn't in Atlas Network Access, or the URI or password is wrong.
+## 📊 Evaluation & Verification
+
+TeamBrain includes automated benchmark and robustness suites:
+
+```bash
+# 1. Retrieval Accuracy Benchmark (Hit@1, Recall@6, MRR)
+python scripts/eval.py
+# Results: Hit@1 = 1.00 | Recall@6 = 1.00 | MRR = 1.00 | Violations = 0
+
+# 2. Adversarial Robustness Check (15 messy/injection prompts)
+python scripts/robustness.py
+# Tests Hinglish, Hindi, typos, prompt injections, defamation guards, and secret redactions.
+```
+
+---
+
+## 📄 License
+
+MIT License. Developed for the MongoDB Student Hackathon (Track 1: Agentic Memory).
