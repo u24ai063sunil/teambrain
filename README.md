@@ -30,12 +30,7 @@ For technical interviewers, developers, and code reviewers, comprehensive techni
 10. [10. Engineering Decisions & Trade-Offs](docs/10-design-decisions.md) — Deep architectural comparisons (MongoDB vs. PostgreSQL, Atlas Vector Search vs. Pinecone, SSE vs. WebSockets).
 11. [11. Evaluation & Testing](docs/11-evaluation-and-testing.md) — Benchmark evaluation dataset, Hit@1, Recall@6, MRR metrics, and 15 adversarial robustness scenarios.
 
-### Technical Interview Preparation (`interview-prep/`)
-1. [01. How to Explain TeamBrain in an Interview](interview-prep/01-project-explanation.md) — 30-second elevator pitch, 2-minute technical pitch, and 5-minute architectural walkthrough.
-2. [02. Technical Interview Question Bank](interview-prep/02-interview-questions.md) — 64 in-depth interview questions across 8 categories with technical answers and interviewer follow-ups.
-3. [03. Technology Deep Dive](interview-prep/03-technology-deep-dive.md) — Core technologies explained from first principles (FastAPI/ASGI, asyncio, PyMongo Async, Atlas Vector Search, HNSW, Change Streams, TTL).
-4. [04. Codebase Navigation Guide](interview-prep/04-codebase-navigation.md) — Recommended 8-step reading order, file-by-file responsibilities, dependencies, and code maps.
-5. [05. Mock Technical Interview](interview-prep/05-mock-interview.md) — 50 battle-tested mock interview questions (basic, intermediate, advanced, and incident scenarios) with grading rubrics.
+
 
 ---
 
