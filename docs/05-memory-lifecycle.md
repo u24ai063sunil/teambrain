@@ -230,3 +230,4 @@ Users often dislike an agent's tone or style (e.g. *"Stop adding verbose comment
 - Previous Document: [04. Memory Creation & Retrieval Pipeline](04-memory-pipeline.md)
 - Next Document: [06. Real-Time Synchronization](06-realtime-system.md)
 - Complete Index: [Table of Contents](../README.md#documentation-index)
+

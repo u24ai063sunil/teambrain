@@ -145,3 +145,4 @@ If the primary LLM provider (e.g., Groq) exhausts its free-tier rate limits (HTT
 - Previous Document: [08. Setup & Deployment Guide](08-setup-and-deployment.md)
 - Next Document: [10. Engineering Decisions & Trade-Offs](10-design-decisions.md)
 - Complete Index: [Table of Contents](../README.md#documentation-index)
+

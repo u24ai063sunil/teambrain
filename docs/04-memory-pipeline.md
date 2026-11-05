@@ -224,3 +224,4 @@ Once memory mutations are finalized, Stage 7 produces the user-facing response:
 - Previous Document: [03. Memory Data Model](03-memory-data-model.md)
 - Next Document: [05. Memory Lifecycle & Advanced Cases](05-memory-lifecycle.md)
 - Complete Index: [Table of Contents](../README.md#documentation-index)
+
